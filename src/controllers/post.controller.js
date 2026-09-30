@@ -1,3 +1,5 @@
+import { Comment } from "../models/comments.model.js";
+import { Like } from "../models/likes.model.js";
 import { Posts } from "../models/posts.model.js";
 import ApiError from "../utils/apiError.util.js";
 import ApiResponse from "../utils/apiResponse.util.js";
@@ -36,4 +38,102 @@ const createPost = asyncHandler(async (req, res) => {
         .json(new ApiResponse(201, post, "Post created successfully"));
 });
 
-export { createPost };
+const togglePostLike = asyncHandler(async (req, res) => {
+    const { postId } = req.params;
+
+    // 1. Validate ID format
+    if (!mongoose.Types.ObjectId.isValid(postId)) {
+        throw new ApiError(400, "Invalid Post ID");
+    }
+
+    // 2. Ensure Post exists
+    const post = await Posts.findById(postId);
+    if (!post) {
+        throw new ApiError(404, "Post not found");
+    }
+
+    // 3. Check if user already liked this post
+    const existingLike = await Like.findOne({
+        post: postId,
+        user: req.user._id,
+    });
+
+    if (existingLike) {
+        // UNLIKE: Remove like document and decrement count
+        await existingLike.deleteOne();
+
+        await Posts.findByIdAndUpdate(postId, {
+            $inc: { likesCount: -1 },
+        });
+
+        return res
+            .status(200)
+            .json(
+                new ApiResponse(
+                    200,
+                    { isLiked: false },
+                    "Post unliked successfully"
+                )
+            );
+    }
+
+    // LIKE: Create like document and increment count
+    await Like.create({
+        post: postId,
+        user: req.user._id,
+    });
+
+    await Posts.findByIdAndUpdate(postId, {
+        $inc: { likesCount: 1 },
+    });
+
+    return res
+        .status(201)
+        .json(
+            new ApiResponse(
+                201,
+                { isLiked: true },
+                "Post liked successfully"
+            )
+        );
+});
+
+const addComment = asyncHandler(async (req, res) => {
+    const { postId } = req.params;
+    const { content } = req.body;
+
+    // 1. Validate parameters
+    if (!mongoose.Types.ObjectId.isValid(postId)) {
+        throw new ApiError(400, "Invalid Post ID");
+    }
+
+    if (!content?.trim()) {
+        throw new ApiError(400, "Comment content cannot be empty");
+    }
+
+    // 2. Ensure Post exists
+    const post = await Posts.findById(postId);
+    if (!post) {
+        throw new ApiError(404, "Post not found");
+    }
+
+    // 3. Create comment
+    const comment = await Comment.create({
+        post: postId,
+        user: req.user._id,
+        content: content.trim(),
+    });
+
+    // 4. Increment comments count on Post
+    await Posts.findByIdAndUpdate(postId, {
+        $inc: { commentsCount: 1 },
+    });
+
+    return res
+        .status(201)
+        .json(new ApiResponse(201, comment, "Comment posted successfully"));
+});
+
+
+
+export { createPost,togglePostLike,addComment };
