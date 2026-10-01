@@ -8,6 +8,7 @@ connectDB()
 .then(()=>{
     app.listen(PORT, ()=>{
     console.log(`Server running successfully at : ${PORT}`);
+    console.log(`Swagger running successfully at : http://localhost:${PORT}/api-docs`);
     })
 })
 .catch(err => {

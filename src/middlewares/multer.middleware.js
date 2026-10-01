@@ -1,4 +1,5 @@
 import multer from "multer";
+import apiError from "../utils/apiError.util.js";
 
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
@@ -12,10 +13,12 @@ const storage = multer.diskStorage({
   
 const fileFilter = (req, file, cb) => {
     // Only allow common image formats
-    if (file.mimetype.startsWith("image/")) {
+    const allowedTypes = ["image/jpeg", "image/png", "image/jpg"];
+    
+    if (allowedTypes.includes(file.mimetype)) {
         cb(null, true);
     } else {
-        cb(new ApiError(400, "Only image files are allowed!"), false);
+        cb(new apiError(400, "Only .jpg, .jpeg, and .png files are allowed!"), false);
     }
 };
 

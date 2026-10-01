@@ -4,12 +4,14 @@ import apiResponse from "../utils/apiResponse.util.js";
 import { User } from "../models/user.model.js";
 import jwt from "jsonwebtoken";
 import { Follow } from "../models/follows.model.js";
+import mongoose from "mongoose";
+import { uploadToCloudinary } from "../utils/cloudinary.util.js";
 
 const generateAccessAndRefereshTokens = async (userId) => {
   try {
     const user = await User.findById(userId);
-    const accessToken = user.generateAccessToken();
-    const refreshToken = user.generateRefreshToken();
+    const accessToken = await user.generateAccessToken();
+    const refreshToken = await user.generateRefreshToken();
 
     user.refreshToken = refreshToken;
     await user.save({ validateBeforeSave: false });
@@ -30,13 +32,15 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new apiError(400, "All fields are required");
   }
 
-  const avatarLocalPath = req.files?.avatar[0]?.path;
+const avatarLocalPath = req.file?.path;
+if (!avatarLocalPath) {
+  throw new apiError(400, "Avatar file is required");
+}
 
-  if (!avatarLocalPath) {
-    throw new apiError(400, "Avatar file is required");
-  }
-
-  const avatar = await uploadOnCloudinary(avatarLocalPath)
+const avatar = await uploadToCloudinary(avatarLocalPath, "avatars");
+if (!avatar?.secure_url) {
+  throw new apiError(500, "Avatar upload failed");
+}
 
   const existingUser = await User.findOne({ $or: [{ username }, { email }] });
 
@@ -308,6 +312,58 @@ const updateUserAvatar = asyncHandler(async (req, res) => {
         .json(new apiResponse(200, user, "Avatar updated successfully"));
 });
 
+const searchUsers = asyncHandler(async (req, res) => {
+    const { query, page = 1, limit = 10 } = req.query;
+
+    // 1. Validate query string
+    if (!query || !query.trim()) {
+        throw new apiError(400, "Search query is required");
+    }
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.max(1, parseInt(limit, 10));
+    const skip = (pageNum - 1) * limitNum;
+
+    const cleanQuery = query.trim();
+
+    const escapedQuery = cleanQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+    // 2. Build search condition using case-insensitive regex ($options: "i")
+    // Also exclude the currently logged-in user from the results
+    const searchFilter = {
+        _id: { $ne: req.user._id },
+        username: { $regex: escapedQuery, $options: "i" }
+    };
+
+    // 3. Execute search & count queries in parallel
+    const [users, totalUsers] = await Promise.all([
+        User.find(searchFilter)
+            .select("username avatar")
+            .skip(skip)
+            .limit(limitNum),
+        User.countDocuments(searchFilter),
+    ]);
+
+    const totalPages = Math.ceil(totalUsers / limitNum);
+
+    return res.status(200).json(
+        new apiResponse(
+            200,
+            {
+                users,
+                pagination: {
+                    totalUsers,
+                    totalPages,
+                    currentPage: pageNum,
+                    limit: limitNum,
+                    hasNextPage: pageNum < totalPages,
+                },
+            },
+            "Users searched successfully"
+        )
+    );
+});
+
 export {
   registerUser,
   loginUser,
@@ -315,5 +371,6 @@ export {
   refreshAccessToken,
   toggleFollowUser,
   getUserProfile,
-  updateUserAvatar
+  updateUserAvatar,
+  searchUsers
 };

@@ -1,10 +1,12 @@
 import { Comment } from "../models/comments.model.js";
 import { Like } from "../models/likes.model.js";
 import { Posts } from "../models/posts.model.js";
+import { Follow } from "../models/follows.model.js";
 import ApiError from "../utils/apiError.util.js";
 import ApiResponse from "../utils/apiResponse.util.js";
 import asyncHandler from "../utils/asyncHandler.util.js";
 import { uploadToCloudinary } from "../utils/cloudinary.util.js";
+import mongoose from "mongoose";
 
 const createPost = asyncHandler(async (req, res) => {
     const { caption } = req.body;
@@ -134,6 +136,48 @@ const addComment = asyncHandler(async (req, res) => {
         .json(new ApiResponse(201, comment, "Comment posted successfully"));
 });
 
+const getFeedPosts = asyncHandler(async (req, res) => {
+    const { page = 1, limit = 10 } = req.query;
 
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.max(1, parseInt(limit, 10));
+    const skip = (pageNum - 1) * limitNum;
 
-export { createPost,togglePostLike,addComment };
+    // 1. Get array of user IDs that req.user is following
+    const followingUserIds = await Follow.find({ follower: req.user._id })
+        .distinct("following");
+
+    // 2. Include current user's own ID to show their posts in feed as well
+    const feedAuthorIds = [...followingUserIds, req.user._id];
+
+    // 3. Query posts with pagination & population
+    const [posts, totalPosts] = await Promise.all([
+        Posts.find({ owner: { $in: feedAuthorIds } })
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limitNum)
+            .populate("owner", "username avatar"),
+        Posts.countDocuments({ owner: { $in: feedAuthorIds } }),
+    ]);
+
+    const totalPages = Math.ceil(totalPosts / limitNum);
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            {
+                posts,
+                pagination: {
+                    totalPosts,
+                    totalPages,
+                    currentPage: pageNum,
+                    limit: limitNum,
+                    hasNextPage: pageNum < totalPages,
+                },
+            },
+            "Feed posts retrieved successfully"
+        )
+    );
+});
+
+export { createPost,togglePostLike,addComment,getFeedPosts };

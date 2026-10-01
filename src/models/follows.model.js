@@ -1,4 +1,4 @@
-import mongoose from "mongoose";
+import mongoose,{Schema} from "mongoose";
 
 const followSchema = new mongoose.Schema(
     {
@@ -15,5 +15,7 @@ const followSchema = new mongoose.Schema(
         timestamps: true
     }
 )
+
+followSchema.index({ follower: 1, following: 1 }, { unique: true });
 
 export const Follow = mongoose.model("Follow",followSchema)
